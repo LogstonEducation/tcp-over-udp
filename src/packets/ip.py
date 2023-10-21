@@ -8,16 +8,16 @@ class IPPacket:
     """
 
     def __init__(self) -> None:
-        self._version = b''
-        self._ihl = b''
-        self._dscp = b''
-        self._ecn = b''
-        self._total_length = b''
-        self._identification = b''
-        self._flags = b''
-        self._fragment_offset = b''
-        self._ttl = b''
-        self._protocol = b''
+        self._version = 0b0
+        self._ihl = 0b0
+        self._dscp = 0b0
+        self._ecn = 0b0
+        self._total_length = 0
+        self._identification = 0
+        self._flags = 0b0
+        self._fragment_offset = 0b0
+        self._ttl = 0
+        self._protocol = 0
         self._header_checksum = b''
         self._source_address = b''
         self._destination_address = b''
@@ -26,7 +26,7 @@ class IPPacket:
 
     # Version
     @property
-    def version(self) -> bytes:
+    def version(self) -> int:
         """
         Return the four-bit version field.
 
@@ -35,12 +35,12 @@ class IPPacket:
         return self._version
 
     @version.setter
-    def version(self, value: bytes):
+    def version(self, value: int):
         self._version = value
 
     # Internet Header Length
     @property
-    def ihl(self) -> bytes:
+    def ihl(self) -> int:
         """
         Return size of IPv4 header as a count of the 32-bit words in the header.
 
@@ -55,12 +55,12 @@ class IPPacket:
         return self._ihl
 
     @ihl.setter
-    def ihl(self, value: bytes):
+    def ihl(self, value: int):
         self._ihl = value
 
     # Differentiated Services Code Point
     @property
-    def dscp(self) -> bytes:
+    def dscp(self) -> int:
         """
         Return Type of Service for the packet.
 
@@ -72,29 +72,29 @@ class IPPacket:
         return self._dscp
 
     @dscp.setter
-    def dscp(self, value: bytes):
+    def dscp(self, value: int):
         self._dscp = value
 
     # Explicit Congestion Notification
     @property
-    def ecn(self) -> bytes:
+    def ecn(self) -> int:
         """
         Return Type of Service for the packet.
 
         This field allows end-to-end notification of network congestion without
-        dropping packets.[34] ECN is an optional feature available when both
+        dropping packets. ECN is an optional feature available when both
         endpoints support it and effective when also supported by the
         underlying network.
         """
         return self._ecn
 
     @ecn.setter
-    def ecn(self, value: bytes):
+    def ecn(self, value: int):
         self._ecn = value
 
     # Total Length
     @property
-    def total_length(self) -> bytes:
+    def total_length(self) -> int:
         """
         Return size of packet in bytes.
 
@@ -110,12 +110,12 @@ class IPPacket:
         return self._total_length
 
     @total_length.setter
-    def total_length(self, value: bytes):
+    def total_length(self, value: int):
         self._total_length = value
 
     # Identification
     @property
-    def identification(self) -> bytes:
+    def identification(self) -> int:
         """
         Return identification for group of IP fragments.
 
@@ -129,12 +129,12 @@ class IPPacket:
         return self._identification
 
     @identification.setter
-    def identification(self, value: bytes):
+    def identification(self, value: int):
         self._identification = value
 
     # Flags
     @property
-    def flags(self) -> bytes:
+    def flags(self) -> int:
         """
         Return fragmentation flags.
 
@@ -160,12 +160,12 @@ class IPPacket:
         return self._flags
 
     @flags.setter
-    def flags(self, value: bytes):
+    def flags(self, value: int):
         self._flags = value
 
     # Fragment offset
     @property
-    def fragment_offset(self) -> bytes:
+    def fragment_offset(self) -> int:
         """
         Return offset of fragment relative to unfragmented packet.
 
@@ -183,7 +183,7 @@ class IPPacket:
         return self._fragment_offset
 
     @fragment_offset.setter
-    def fragment_offset(self, value: bytes):
+    def fragment_offset(self, value: int):
         self._fragment_offset = value
 
     # Time To Live
