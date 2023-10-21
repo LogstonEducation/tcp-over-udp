@@ -1,4 +1,3 @@
-
 class IPPacket:
     """
     A class to represent an IP packet.
@@ -295,7 +294,6 @@ class IPPacket:
     @options.setter
     def options(self, value: bytes):
         self._options = value
-        raise NotImplementedError('Not implemented in this particular project :/')
 
     # Data
     @property
