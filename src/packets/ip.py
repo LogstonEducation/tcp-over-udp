@@ -1,3 +1,20 @@
+def ones_complement(k):
+    flipped_bits = []
+    for bit in reversed(str(bin(k))[2:]):
+        if bit == '1':
+            flipped_bits.append('0')
+        else:
+            flipped_bits.append('1')
+
+    # Left pad with 1s.
+    for _ in range(16 - len(flipped_bits)):
+        flipped_bits.append('1')
+
+    complement_bit_string = '0b' + ''.join(reversed(flipped_bits))
+
+    return int(complement_bit_string, 2)
+
+
 class IPPacket:
     """
     A class to represent an IP packet.
@@ -18,9 +35,9 @@ class IPPacket:
         self._fragment_offset = 0b0
         self._ttl = 0
         self._protocol = 0
-        self._header_checksum = b''
-        self._source_address = b''
-        self._destination_address = b''
+        # header_checksum calculated on the fly.
+        self._source_address = ''
+        self._destination_address = ''
         self._options = b''
         self._data = b''
 
@@ -188,7 +205,7 @@ class IPPacket:
 
     # Time To Live
     @property
-    def ttl(self) -> bytes:
+    def ttl(self) -> int:
         """
         Return Time To Live value.
 
@@ -203,12 +220,12 @@ class IPPacket:
         return self._ttl
 
     @ttl.setter
-    def ttl(self, value: bytes):
+    def ttl(self, value: int):
         self._ttl = value
 
     # Protocol
     @property
-    def protocol(self) -> bytes:
+    def protocol(self) -> int:
         """
         Return protocol number for packet.
 
@@ -218,7 +235,7 @@ class IPPacket:
         return self._protocol
 
     @protocol.setter
-    def protocol(self, value: bytes):
+    def protocol(self, value: int):
         self._protocol = value
 
     # Header Checksum
@@ -242,11 +259,23 @@ class IPPacket:
         sum of all 16 bit words in the header. For purposes of computing the
         checksum, the value of the checksum field is zero.
         """
-        return self._header_checksum
+        b = self.pre_header_checksum()
 
-    @header_checksum.setter
-    def header_checksum(self, value: bytes):
-        self._header_checksum = value
+        s = 0
+        for i in range(0, len(b), 2):
+            part = ((b[i] << 8) + b[i + 1])
+
+            s += part
+
+            if (s >> 16):
+                s = (s & 0xffff) + (s >> 16)
+
+        s = ones_complement(s)
+
+        b = bytearray()
+        b.append(s >> 8)
+        b.append(s & 0xff)
+        return bytes(b)
 
     # Source Address
     @property
@@ -257,10 +286,10 @@ class IPPacket:
         This 32-bit field is the IPv4 address of the sender of the packet. It
         may be changed in transit by network address translation (NAT).
         """
-        return self._source_address
+        return bytearray(int(x) for x in self._source_address.split('.'))
 
     @source_address.setter
-    def source_address(self, value: bytes):
+    def source_address(self, value: str):
         self._source_address = value
 
     # Destination Address
@@ -272,10 +301,10 @@ class IPPacket:
         This 32-bit field is the IPv4 address of the sender of the packet. It
         may be changed in transit by network address translation (NAT).
         """
-        return self._destination_address
+        return bytearray(int(x) for x in self._destination_address.split('.'))
 
     @destination_address.setter
-    def destination_address(self, value: bytes):
+    def destination_address(self, value: str):
         self._destination_address = value
 
     # Options
@@ -306,3 +335,45 @@ class IPPacket:
     @data.setter
     def data(self, value: bytes):
         self._data = value
+
+    def pre_header_checksum(self) -> bytes:
+        b = bytearray()
+        b.append((self.version << 4) + (self.ihl))
+        b.append((self.dscp << 2) + (self.ecn))
+
+        b.append(self.total_length >> 8)
+        b.append(self.total_length & 0xff)
+
+        b.append(self.identification >> 8)
+        b.append(self.identification & 0xff)
+
+        b.append((self.flags << 5) + (self.fragment_offset >> 8))
+        b.append(self.fragment_offset & 0xff)
+
+        b.append(self.ttl)
+        b.append(self.protocol)
+
+        # Header Checksum
+        b.append(0x00)
+        b.append(0x00)
+
+        b.extend(self.source_address)
+        b.extend(self.destination_address)
+
+        b.extend(self.options)
+
+        return bytes(b)
+
+    def header(self) -> bytes:
+        b = bytearray(self.pre_header_checksum())
+
+        b[10] = self.header_checksum[0]
+        b[11] = self.header_checksum[1]
+
+        return bytes(b)
+
+    @property
+    def bytes(self):
+        b = bytearray(self.header())
+        b.extend(self.data)
+        return bytes(b)
