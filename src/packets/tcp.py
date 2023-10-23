@@ -1,3 +1,6 @@
+from .ip import IPPacket
+
+
 class TCPPacket:
     """
     A class to represent a TCP packet.
@@ -7,12 +10,13 @@ class TCPPacket:
     Pulled from https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
     """
 
-    def __init__(self) -> None:
-        self._source_port = b''
-        self._destination_port = b''
-        self._sequence_number = b''
-        self._acknowledgment_number = b''
-        self._data_offset = b''
+    def __init__(self, ip_packet: IPPacket) -> None:
+        self._ip_packet = ip_packet
+        self._source_port = 0
+        self._destination_port = 0
+        self._sequence_number = 0
+        self._acknowledgment_number = 0
+        self._data_offset = 0
         self._reserved = b''
         self._cwr = False
         self._ece = False
@@ -22,39 +26,39 @@ class TCPPacket:
         self._rst = False
         self._syn = False
         self._fin = False
-        self._window_size = b''
-        self._checksum = b''
-        self._urgent_pointer = b''
+        self._window_size = 0
+        # header_checksum calculated on the fly.
+        self._urgent_pointer = 0
         self._options = b''
         self._data = b''
 
     # Source Port
     @property
-    def source_port(self) -> bytes:
+    def source_port(self) -> int:
         """
         Return the sending port.
         """
         return self._source_port
 
     @source_port.setter
-    def source_port(self, value: bytes):
+    def source_port(self, value: int):
         self._source_port = value
 
     # Destination Port
     @property
-    def destination_port(self) -> bytes:
+    def destination_port(self) -> int:
         """
         Return the receiving port.
         """
         return self._destination_port
 
     @destination_port.setter
-    def destination_port(self, value: bytes):
+    def destination_port(self, value: int):
         self._destination_port = value
 
     # Sequence Number
     @property
-    def sequence_number(self) -> bytes:
+    def sequence_number(self) -> int:
         """
         Return the sequence number for packet.
 
@@ -70,12 +74,12 @@ class TCPPacket:
         return self._sequence_number
 
     @sequence_number.setter
-    def sequence_number(self, value: bytes):
+    def sequence_number(self, value: int):
         self._sequence_number = value
 
     # Acknowledgment Number
     @property
-    def acknowledgment_number(self) -> bytes:
+    def acknowledgment_number(self) -> int:
         """
         Return the acknowledgment number for packet.
 
@@ -88,12 +92,12 @@ class TCPPacket:
         return self.acknowledgment_number
 
     @acknowledgment_number.setter
-    def acknowledgment_number(self, value: bytes):
+    def acknowledgment_number(self, value: int):
         self._acknowledgment_number = value
 
     # Data Offset
     @property
-    def data_offset(self) -> bytes:
+    def data_offset(self) -> int:
         """
         Return size of TCP header in terms of 32-bit words.
 
@@ -107,7 +111,7 @@ class TCPPacket:
         return self._data_offset
 
     @data_offset.setter
-    def data_offset(self, value: bytes):
+    def data_offset(self, value: int):
         self._data_offset = value
 
     # Reserved
@@ -261,7 +265,7 @@ class TCPPacket:
 
     # Window Size
     @property
-    def window_size(self) -> bytes:
+    def window_size(self) -> int:
         """
         Return window size for socket.
 
@@ -272,7 +276,7 @@ class TCPPacket:
         return self._window_size
 
     @window_size.setter
-    def window_size(self, value: bytes):
+    def window_size(self, value: int):
         self._window_size = value
 
     # Checksum
@@ -295,7 +299,7 @@ class TCPPacket:
 
     # Urgent Pointer
     @property
-    def urgent_pointer(self) -> bytes:
+    def urgent_pointer(self) -> int:
         """
         Return urgent offset from sequence number.
 
@@ -305,7 +309,7 @@ class TCPPacket:
         return self._urgent_pointer
 
     @urgent_pointer.setter
-    def urgent_pointer(self, value: bytes):
+    def urgent_pointer(self, value: int):
         self._urgent_pointer = value
 
     # Options
@@ -331,3 +335,28 @@ class TCPPacket:
     @data.setter
     def data(self, value: bytes):
         self._data = value
+
+    @property
+    def pseduo_header(self):
+        """
+        Header used as part of checksum calculation.
+        """
+        # Calculate TCP segment length in bytes.
+        tcp_length = self._ip_packet.total_length - (self._ip_packet.ihl << 2)
+
+        s = 0
+
+        # Add in IP source address.
+        s += (self._ip_packet.source_address[0] << 8) + self._ip_packet.source_address[1]
+        s += (self._ip_packet.source_address[2] << 8) + self._ip_packet.source_address[3]
+
+        # Add in IP destination address.
+        s += (self._ip_packet.destination_address[0] << 8) + self._ip_packet.destination_address[1]
+        s += (self._ip_packet.destination_address[2] << 8) + self._ip_packet.destination_address[3]
+
+        # Add in Protocol
+        s += self._ip_packet.protocol
+        s += tcp_length
+
+        return s
+

@@ -1,8 +1,5 @@
+from utils import bytearray_from_hex
 from packets.ip import IPPacket, ones_complement
-
-
-def bytearray_from_hex(h):
-    return bytearray(int(x, 16) for x in h)
 
 
 def create_simple_packet() -> IPPacket:
