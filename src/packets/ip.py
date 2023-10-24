@@ -1,18 +1,4 @@
-def ones_complement(k):
-    flipped_bits = []
-    for bit in reversed(str(bin(k))[2:]):
-        if bit == '1':
-            flipped_bits.append('0')
-        else:
-            flipped_bits.append('1')
-
-    # Left pad with 1s.
-    for _ in range(16 - len(flipped_bits)):
-        flipped_bits.append('1')
-
-    complement_bit_string = '0b' + ''.join(reversed(flipped_bits))
-
-    return int(complement_bit_string, 2)
+from utils import ones_complement
 
 
 class IPPacket:
@@ -259,7 +245,7 @@ class IPPacket:
         sum of all 16 bit words in the header. For purposes of computing the
         checksum, the value of the checksum field is zero.
         """
-        b = self.pre_header_checksum()
+        b = self._header_before_checksum
 
         s = 0
         for i in range(0, len(b), 2):
@@ -336,7 +322,8 @@ class IPPacket:
     def data(self, value: bytes):
         self._data = value
 
-    def pre_header_checksum(self) -> bytes:
+    @property
+    def _header_before_checksum(self) -> bytes:
         b = bytearray()
         b.append((self.version << 4) + (self.ihl))
         b.append((self.dscp << 2) + (self.ecn))
@@ -364,8 +351,9 @@ class IPPacket:
 
         return bytes(b)
 
+    @property
     def header(self) -> bytes:
-        b = bytearray(self.pre_header_checksum())
+        b = bytearray(self._header_before_checksum)
 
         b[10] = self.header_checksum[0]
         b[11] = self.header_checksum[1]
@@ -374,6 +362,6 @@ class IPPacket:
 
     @property
     def bytes(self):
-        b = bytearray(self.header())
+        b = bytearray(self.header)
         b.extend(self.data)
         return bytes(b)

@@ -1,5 +1,5 @@
+from packets.ip import IPPacket
 from utils import bytearray_from_hex
-from packets.ip import IPPacket, ones_complement
 
 
 def create_simple_packet() -> IPPacket:
@@ -134,10 +134,10 @@ def test_data():
     assert p.data == b'hello'
 
 
-def test_pre_header_checksum():
+def test_header_before_checksum():
     p = create_simple_packet()
 
-    assert p.pre_header_checksum() == bytearray_from_hex((
+    assert p._header_before_checksum == bytearray_from_hex((
         '45', '00', '00', '34',
         '00', '00', '40', '00',
         '40', '06', '00', '00',
@@ -149,7 +149,7 @@ def test_pre_header_checksum():
 def test_header():
     p = create_simple_packet()
 
-    assert p.header() == bytearray_from_hex((
+    assert p.header == bytearray_from_hex((
         '45', '00', '00', '34',
         '00', '00', '40', '00',
         '40', '06', 'be', 'ff',
@@ -158,11 +158,7 @@ def test_header():
     ))
 
 
-def test_ones_complement():
-    assert ones_complement(int('479e', 16)) == int('b861', 16)
-
-
 def test_bytes():
     p = create_simple_packet()
     p.data = b'hello'
-    assert p.bytes == p.header() + b'hello'
+    assert p.bytes == p.header + b'hello'

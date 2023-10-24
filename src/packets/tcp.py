@@ -1,4 +1,4 @@
-from .ip import IPPacket
+from .ip import IPPacket, ones_complement
 
 
 class TCPPacket:
@@ -10,8 +10,7 @@ class TCPPacket:
     Pulled from https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
     """
 
-    def __init__(self, ip_packet: IPPacket) -> None:
-        self._ip_packet = ip_packet
+    def __init__(self) -> None:
         self._source_port = 0
         self._destination_port = 0
         self._sequence_number = 0
@@ -89,7 +88,7 @@ class TCPPacket:
         each end acknowledges the other end's initial sequence number itself,
         but no data.
         """
-        return self.acknowledgment_number
+        return self._acknowledgment_number
 
     @acknowledgment_number.setter
     def acknowledgment_number(self, value: int):
@@ -255,13 +254,22 @@ class TCPPacket:
 
     # Flags
     @property
-    def flags(self):
+    def flags(self) -> int:
         """
         Return byte with configuration of flags.
 
         This is a helper function and does not represent a unique field in a TCP packet.
         """
-        return b''
+        return (
+            (self.cwr << 7) +
+            (self.ece << 6) +
+            (self.urg << 5) +
+            (self.ack << 4) +
+            (self.psh << 3) +
+            (self.rst << 2) +
+            (self.syn << 1) +
+            (self.fin << 0)
+        )
 
     # Window Size
     @property
@@ -291,11 +299,22 @@ class TCPPacket:
         the TCP protocol (6) and the length of the TCP headers and payload (in
         bytes).
         """
-        return self._checksum
+        # Sum up each 16-bit chunk of IP pseudo header, TCP header, and TCP data.
+        s = self._pseduo_header_sum
+        h = self._header_before_checksum
 
-    @checksum.setter
-    def checksum(self, value: bytes):
-        self._checksum = value
+        for i in range(0, len(h), 2):
+            s += (h[i] << 8) + h[i + 1]
+
+        for i in range(0, len(self.data), 2):
+            s += (self.data[i] << 8) + self.data[i + 1]
+
+        # Collapse into 16 bits
+        s = (s >> 16) + (s & 0xffff)
+
+        s = ones_complement(s)
+
+        return bytes((s >> 8, s & 0xff))
 
     # Urgent Pointer
     @property
@@ -337,26 +356,90 @@ class TCPPacket:
         self._data = value
 
     @property
-    def pseduo_header(self):
+    def ip_packet(self) -> IPPacket:
+        if self._ip_packet is None:
+            raise ValueError('IP packet not set')
+        return self._ip_packet
+
+    @ip_packet.setter
+    def ip_packet(self, value: IPPacket):
+        self._ip_packet = value
+
+    @property
+    def _pseduo_header_sum(self) -> int:
         """
         Header used as part of checksum calculation.
         """
-        # Calculate TCP segment length in bytes.
-        tcp_length = self._ip_packet.total_length - (self._ip_packet.ihl << 2)
-
         s = 0
 
         # Add in IP source address.
-        s += (self._ip_packet.source_address[0] << 8) + self._ip_packet.source_address[1]
-        s += (self._ip_packet.source_address[2] << 8) + self._ip_packet.source_address[3]
+        s += (self.ip_packet.source_address[0] << 8) + self.ip_packet.source_address[1]
+        s += (self.ip_packet.source_address[2] << 8) + self.ip_packet.source_address[3]
 
         # Add in IP destination address.
-        s += (self._ip_packet.destination_address[0] << 8) + self._ip_packet.destination_address[1]
-        s += (self._ip_packet.destination_address[2] << 8) + self._ip_packet.destination_address[3]
+        s += (self.ip_packet.destination_address[0] << 8) + self.ip_packet.destination_address[1]
+        s += (self.ip_packet.destination_address[2] << 8) + self.ip_packet.destination_address[3]
 
         # Add in Protocol
-        s += self._ip_packet.protocol
-        s += tcp_length
+        # Technically, we add 0 here for the first 8 bits of a 16 bit chunk;
+        # Protocol is only 8 bits wide. But zero is zero.
+        s += self.ip_packet.protocol
+
+        # Calculate TCP segment length in bytes.
+        s += len(self._header_before_checksum) + len(self.data)
 
         return s
 
+    @property
+    def _header_before_checksum(self) -> bytes:
+        b = bytearray()
+
+        b.extend((self.source_port >> 8, self.source_port & 0xff))
+        b.extend((self.destination_port >> 8, self.destination_port & 0xff))
+
+        b.extend((
+            (self.sequence_number >> 24) & 0xff,  # & is not needed but done for uniformity
+            (self.sequence_number >> 16) & 0xff,
+            (self.sequence_number >> 8) & 0xff,
+            (self.sequence_number >> 0) & 0xff,  # >> is not needed by done for uniformity
+        ))
+        b.extend((
+            (self.acknowledgment_number >> 24) & 0xff,  # & is not needed but done for uniformity
+            (self.acknowledgment_number >> 16) & 0xff,
+            (self.acknowledgment_number >> 8) & 0xff,
+            (self.acknowledgment_number >> 0) & 0xff,  # >> is not needed by done for uniformity
+        ))
+
+        b.append(self.data_offset << 4)
+        # Technically should added 0 after the data offset. But leaving it out.
+
+        b.append(self.flags)
+
+        b.extend((self.window_size >> 8, self.window_size & 0xff))
+
+        # Checksum
+        b.append(0x00)
+        b.append(0x00)
+
+        b.extend((self.urgent_pointer >> 8, self.urgent_pointer & 0xff))
+
+        # Add padding to 32-bit boundary
+        for _ in range(len(bytes(b) + self.options) % 4):
+            b.append(0)
+
+        return bytes(b)
+
+    @property
+    def header(self) -> bytes:
+        h = bytearray(self._header_before_checksum)
+
+        c = self.checksum
+
+        h[16] = c[0]
+        h[17] = c[1]
+
+        return bytes(h)
+
+    @property
+    def bytes(self):
+        return self.header + self.data
