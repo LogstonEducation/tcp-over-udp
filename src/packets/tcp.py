@@ -107,11 +107,7 @@ class TCPPacket:
         it is also the offset from the start of the TCP segment to the actual
         data.
         """
-        return self._data_offset
-
-    @data_offset.setter
-    def data_offset(self, value: int):
-        self._data_offset = value
+        return int(len(self._header_before_checksum) / 4)
 
     # Reserved
     @property
@@ -120,10 +116,6 @@ class TCPPacket:
         For future use and should be set to zero.
         """
         return self._reserved
-
-    @reserved.setter
-    def reserved(self, value: bytes):
-        self._reserved = value
 
     # Flag - CWR
     @property
@@ -301,13 +293,24 @@ class TCPPacket:
         """
         # Sum up each 16-bit chunk of IP pseudo header, TCP header, and TCP data.
         s = self._pseduo_header_sum
-        h = self._header_before_checksum
+        h = bytearray(self._header_before_checksum)
+
+        # Add in data offset at this point because we now know the size of the
+        # headers. Add it in in _header_before_checksum would cause a
+        # recursion error.
+        h[12] = (self.data_offset << 4)
+        # Technically should added 0 after the data offset. But leaving it out.
 
         for i in range(0, len(h), 2):
             s += (h[i] << 8) + h[i + 1]
 
-        for i in range(0, len(self.data), 2):
-            s += (self.data[i] << 8) + self.data[i + 1]
+        # Pad TCP data to include 16-bit chunks of data.
+        d = bytearray(self.data)
+        if len(d) % 2:
+            d.append(0)
+
+        for i in range(0, len(d), 2):
+            s += (d[i] << 8) + d[i + 1]
 
         # Collapse into 16 bits
         s = (s >> 16) + (s & 0xffff)
@@ -410,8 +413,8 @@ class TCPPacket:
             (self.acknowledgment_number >> 0) & 0xff,  # >> is not needed by done for uniformity
         ))
 
-        b.append(self.data_offset << 4)
-        # Technically should added 0 after the data offset. But leaving it out.
+        # Place holder for data offset. Will fill in later.
+        b.append(0x00)
 
         b.append(self.flags)
 

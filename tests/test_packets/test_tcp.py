@@ -32,8 +32,6 @@ def create_simple_tcp_packet() -> TCPPacket:
     p.sequence_number = 10
     p.acknowledgment_number = 97
 
-    p.data_offset = 5
-
     p.window_size = 2048
 
     return p
@@ -51,7 +49,7 @@ def test_header_before_checksum():
         '49', '33', '00', '50',
         '00', '00', '00', '0a',
         '00', '00', '00', '61',
-        '50', '00', '08', '00',
+        '00', '00', '08', '00',
         '00', '00', '00', '00',
     ))
 
@@ -86,7 +84,6 @@ def test_checksum_securitynik():
     p.sequence_number = 10
     p.acknowledgment_number = 0
 
-    p.data_offset = 5
     p.syn = True
     p.window_size = 8192
     p.urgent_pointer = 0
