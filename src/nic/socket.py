@@ -1,4 +1,11 @@
+import logging
+import time
+from typing import List
+
 from packets.tcp import TCPPacket
+
+
+logger = logging.getLogger(__name__)
 
 
 class TCPOverUDPSocket:
@@ -24,7 +31,9 @@ class TCPOverUDPSocket:
         self.sequence_number = 0
         self.acknowledgment_number = 0
 
-        self.queue = []
+        self.queue: List[TCPPacket] = []
+
+        self._data_queue = bytearray()
 
     def _get_tcp_packet(self):
         p = TCPPacket()
@@ -38,6 +47,27 @@ class TCPOverUDPSocket:
         p.window_size = 2048
 
         return p
+
+    def handle_queue(self):
+        while True:
+            try:
+                packet = self.queue.pop(0)
+            except IndexError:
+                # TODO: Use select instead of fast loop
+                time.sleep(0.1)
+                continue
+
+            self._handle_packet(packet)
+
+    def _handle_packet(self, packet: TCPPacket):
+        logger.debug(packet.data)
+
+        self._data_queue.extend(packet.data)
+
+    def read(self, size: int) -> bytes:
+        data = self._data_queue[:size]
+        self._data_queue = self._data_queue[size:]
+        return data
 
     def write(self, msg: bytes):
         p = self._get_tcp_packet()

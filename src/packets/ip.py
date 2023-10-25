@@ -256,8 +256,6 @@ class IPPacket:
         """
         b = self._header_before_checksum
 
-        print(list(map(hex, b)))
-
         s = 0
         for i in range(0, len(b), 2):
             s += ((b[i] << 8) + b[i + 1])

@@ -2,6 +2,7 @@ import logging
 import socket
 import time
 import threading
+import sys
 
 from nic.socket import TCPOverUDPSocket
 from packets.ip import IPPacket, IPPacketError
@@ -12,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class NIC:
-    def __init__(self) -> None:
+    def __init__(self, port=2240) -> None:
         # This mimics an ethernet layer for us (ie. layer 2).
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # We bind to an address so that real UDP packets can be received. We
         # can think of this as the NIC publishing its MAC address on a network?
-        self._sock.bind(('127.0.0.1', 2240))
+        self._sock.bind(('127.0.0.1', port))
 
         self._in_queue = bytearray()
         self._out_queue = []
@@ -33,20 +34,25 @@ class NIC:
         Run each loop to handle both in and outbound transit.
         """
         t = threading.Thread(target=self.read_from_layer_2)
+        t.daemon = True
         t.start()
         self._threads.append(t)
 
         t = threading.Thread(target=self.handle_in_queue)
+        t.daemon = True
         t.start()
         self._threads.append(t)
 
         t = threading.Thread(target=self._send_out_queue)
+        t.daemon = True
         t.start()
         self._threads.append(t)
 
-        t1.join()
-        t2.join()
-        t3.join()
+        for t in self._threads:
+            try:
+                t.join()
+            except KeyboardInterrupt:
+                sys.exit(0)
 
     def read_from_layer_2(self):
         logger.debug('starting layer 2 read')
@@ -131,9 +137,12 @@ class NIC:
 
             s = self._socket_map.get(tup)
             if s is None:
+                logger.debug(f'setting up new socket for {tup}')
+
                 s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
 
-                t = threading.Thread(target=s.handle_in_queue)
+                t = threading.Thread(target=s.handle_queue)
+                t.daemon = True
                 t.start()
                 self._threads.append(t)
 
@@ -150,6 +159,7 @@ class NIC:
 
     def _send_out_queue(self):
         logger.debug('starting out queue')
+
         while True:
             if self._shutdown:
                 break
