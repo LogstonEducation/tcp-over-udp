@@ -1,6 +1,12 @@
 from .ip import IPPacket, ones_complement
 
 
+class TCPPacketError(Exception):
+    """
+    Catch all error for anything related to TCP packets.
+    """
+
+
 class TCPPacket:
     """
     A class to represent a TCP packet.
@@ -376,12 +382,14 @@ class TCPPacket:
         s = 0
 
         # Add in IP source address.
-        s += (self.ip_packet.source_address[0] << 8) + self.ip_packet.source_address[1]
-        s += (self.ip_packet.source_address[2] << 8) + self.ip_packet.source_address[3]
+        sa = IPPacket.get_bytes_for_ip(self.ip_packet.source_address)
+        s += (sa[0] << 8) + sa[1]
+        s += (sa[2] << 8) + sa[3]
 
         # Add in IP destination address.
-        s += (self.ip_packet.destination_address[0] << 8) + self.ip_packet.destination_address[1]
-        s += (self.ip_packet.destination_address[2] << 8) + self.ip_packet.destination_address[3]
+        da = IPPacket.get_bytes_for_ip(self.ip_packet.destination_address)
+        s += (da[0] << 8) + da[1]
+        s += (da[2] << 8) + da[3]
 
         # Add in Protocol
         # Technically, we add 0 here for the first 8 bits of a 16 bit chunk;
@@ -436,6 +444,8 @@ class TCPPacket:
     def header(self) -> bytes:
         h = bytearray(self._header_before_checksum)
 
+        h[12] = (self.data_offset << 4)
+
         c = self.checksum
 
         h[16] = c[0]
@@ -446,3 +456,43 @@ class TCPPacket:
     @property
     def bytes(self):
         return self.header + self.data
+
+    @classmethod
+    def parse_from_ip_packet(cls, ip_packet: IPPacket, verify=True):
+        p = cls()
+        p.ip_packet = ip_packet
+
+        b = ip_packet.data
+
+        p.source_port = (b[0] << 8) + b[1]
+        p.destination_port = (b[2] << 8) + b[3]
+
+        p.sequence_number = (b[4] << 24) + (b[5] << 16) + (b[6] << 8) + b[7]
+        p.acknowledgment_number = (b[8] << 24) + (b[9] << 16) + (b[10] << 8) + b[11]
+
+        data_offset = b[12] >> 4
+
+        p.cwr = bool((b[13] >> 7) & 0b1)
+        p.ece = bool((b[13] >> 6) & 0b1)
+        p.urg = bool((b[13] >> 5) & 0b1)
+        p.ack = bool((b[13] >> 4) & 0b1)
+        p.psh = bool((b[13] >> 3) & 0b1)
+        p.rst = bool((b[13] >> 2) & 0b1)
+        p.syn = bool((b[13] >> 1) & 0b1)
+        p.fin = bool((b[13] >> 0) & 0b1)  # Not strictly need, but looks good.
+
+        p.window_size = (b[14] << 8) + b[15]
+
+        p.urgent_pointer = (b[18] << 8) + b[19]
+
+        p.options = b[20:(data_offset * 4)]
+
+        p.data = b[(data_offset * 4):]
+
+        if verify and p.checksum != b[16:18]:
+            c = list(map(hex, p.checksum))
+            e = list(map(hex, b[16:18]))
+            msg = f'Invalid checksum {c}, expected {e}'
+            raise TCPPacketError(msg)
+
+        return p

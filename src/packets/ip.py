@@ -1,6 +1,12 @@
 from utils import ones_complement
 
 
+class IPPacketError(Exception):
+    """
+    Catch all error for anything related to IP packets.
+    """
+
+
 class IPPacket:
     """
     A class to represent an IP packet.
@@ -9,6 +15,9 @@ class IPPacket:
 
     Pulled from https://en.wikipedia.org/wiki/Internet_Protocol_version_4#Packet_structure
     """
+    class PROTOCOL:
+        TCP = 6
+        UDP = 17
 
     def __init__(self) -> None:
         self._version = 0b0
@@ -247,11 +256,11 @@ class IPPacket:
         """
         b = self._header_before_checksum
 
+        print(list(map(hex, b)))
+
         s = 0
         for i in range(0, len(b), 2):
-            part = ((b[i] << 8) + b[i + 1])
-
-            s += part
+            s += ((b[i] << 8) + b[i + 1])
 
             if (s >> 16):
                 s = (s & 0xffff) + (s >> 16)
@@ -265,14 +274,14 @@ class IPPacket:
 
     # Source Address
     @property
-    def source_address(self) -> bytes:
+    def source_address(self) -> str:
         """
         Return source address of packet.
 
         This 32-bit field is the IPv4 address of the sender of the packet. It
         may be changed in transit by network address translation (NAT).
         """
-        return bytearray(int(x) for x in self._source_address.split('.'))
+        return self._source_address
 
     @source_address.setter
     def source_address(self, value: str):
@@ -280,14 +289,14 @@ class IPPacket:
 
     # Destination Address
     @property
-    def destination_address(self) -> bytes:
+    def destination_address(self) -> str:
         """
         Return destination address of packet.
 
         This 32-bit field is the IPv4 address of the sender of the packet. It
         may be changed in transit by network address translation (NAT).
         """
-        return bytearray(int(x) for x in self._destination_address.split('.'))
+        return self._destination_address
 
     @destination_address.setter
     def destination_address(self, value: str):
@@ -344,12 +353,16 @@ class IPPacket:
         b.append(0x00)
         b.append(0x00)
 
-        b.extend(self.source_address)
-        b.extend(self.destination_address)
+        b.extend(self.get_bytes_for_ip(self.source_address))
+        b.extend(self.get_bytes_for_ip(self.destination_address))
 
         b.extend(self.options)
 
         return bytes(b)
+
+    @staticmethod
+    def get_bytes_for_ip(ip: str) -> bytes:
+        return bytes(int(x) for x in ip.split('.'))
 
     @property
     def header(self) -> bytes:
@@ -359,6 +372,46 @@ class IPPacket:
         b[11] = self.header_checksum[1]
 
         return bytes(b)
+
+    @classmethod
+    def parse(cls, b: bytes, verify=True):
+        """
+        Return a packet object based off of the bytes given.
+        """
+        p = cls()
+        p.version = (b[0] >> 4)
+        p.ihl = (b[0] & 0xf)
+
+        p.dscp = (b[1] >> 2)
+        p.ecn = (b[1] & 0xf)
+
+        p.total_length = (b[2] << 8) + b[3]
+
+        p.identification = (b[4] << 8) + b[5]
+
+        p.flags = (b[6] >> 5)
+        p.fragment_offset = ((b[6] & 0b00011111) << 8) + b[7]
+
+        p.ttl = b[8]
+
+        p.protocol = b[9]
+
+        p.source_address = '.'.join(str(i) for i in b[12:16])
+        p.destination_address = '.'.join(str(i) for i in b[16:20])
+
+        header_length = (p.ihl) * 4
+
+        p.options = b[20:header_length]
+
+        p.data = b[header_length:p.total_length]
+
+        if verify and p.header_checksum != b[10:12]:
+            c = list(map(hex, p.header_checksum))
+            e = list(map(hex, b[10:12]))
+            msg = f'Invalid checksum {c}, expected {e}'
+            raise IPPacketError(msg)
+
+        return p
 
     @property
     def bytes(self):
