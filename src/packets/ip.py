@@ -416,3 +416,12 @@ class IPPacket:
         b = bytearray(self.header)
         b.extend(self.data)
         return bytes(b)
+
+    def __str__(self):
+        parts = [
+            self.__class__.__name__,
+            self.source_address,
+            '->',
+            self.destination_address,
+        ]
+        return f"<{' '.join(parts)}>"

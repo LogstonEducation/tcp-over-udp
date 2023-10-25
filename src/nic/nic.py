@@ -24,6 +24,8 @@ class NIC:
         self._shutdown = False
 
         self._layer2 = layer2
+        self._layer2.setup()
+
         self._in_queue = bytearray()
         self._out_queue = bytearray()
 
@@ -59,7 +61,7 @@ class NIC:
                 sys.exit(0)
 
     def _read_from_layer2(self):
-        logger.info('starting read from layer 2 loop')
+        logger.debug('starting read from layer 2 loop')
 
         while True:
             if self._shutdown:
@@ -74,7 +76,7 @@ class NIC:
             self._in_queue.extend(b)
 
     def _write_to_layer2(self):
-        logger.info('starting write to layer 2 loop')
+        logger.debug('starting write to layer 2 loop')
 
         while True:
             if self._shutdown:
@@ -122,6 +124,8 @@ class NIC:
                 self._in_queue = self._in_queue[1:]
                 continue
 
+            logger.debug(f'Read ip packet header from in-queue')
+
             if len(self._in_queue) < ip_packet.total_length:
                 # Wait it out a bit.
                 time.sleep(0.1)
@@ -135,6 +139,8 @@ class NIC:
             except IPPacketError:
                 continue
 
+            logger.debug(f'Read full ip packet from in-queue {ip_packet}')
+
             if ip_packet.protocol != IPPacket.PROTOCOL.TCP:
                 # We don't support anything but TCP at the moment.
                 continue
@@ -146,6 +152,8 @@ class NIC:
             except TCPPacketError:
                 # Throw the packet away if its not valid.
                 continue
+
+            logger.debug(f'Read tcp packet from ip packet {tcp_packet}')
 
             # Route packet based on IP and Port
             tup = (
@@ -173,16 +181,18 @@ class NIC:
                 s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
                 s.state = TCPOverUDPSocket.STATE.LISTEN
 
-                t = threading.Thread(target=s.handle_queue, daemon = True)
+                t = threading.Thread(target=s.start, daemon=True)
                 t.start()
                 self._threads.append(t)
 
             s.packet_in_queue.append(tcp_packet)
 
+            logger.debug(f'Placed tcp packet in socket queue {tcp_packet}')
+
     def send_packet(self, packet: IPPacket):
         self._out_queue.extend(packet.bytes)
 
-    def create_conn(self, addr_tup: tuple, timeout=1.0) -> TCPOverUDPSocket:
+    def create_conn(self, addr_tup: tuple, timeout=5.0) -> TCPOverUDPSocket:
         logger.debug(f'Creating conn to {addr_tup}')
 
         # TODO: Pull source_address from NIC.
@@ -203,6 +213,11 @@ class NIC:
 
         s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
 
+        # Handle
+        t = threading.Thread(target=s.start, daemon=True)
+        t.start()
+        self._threads.append(t)
+
         # Open a connection.
         t = threading.Thread(target=s.open_connection, daemon=True)
         t.start()
@@ -210,5 +225,10 @@ class NIC:
 
         # Wait until socket is ready.
         t.join(timeout)
+
+        if s.state != s.STATE.ESTABLISHED:
+            raise NICError(f'Unable to create connection')
+
+        logger.info(f'Created conn to {addr_tup}')
 
         return s

@@ -534,3 +534,30 @@ class TCPPacket:
         p = self.__class__()
         p.rst = True
         return p.flags == self.flags
+
+    @property
+    def type(self) -> str:
+        if self.is_syn:
+            return 'SYN'
+        elif self.is_syn_ack:
+            return 'SYN/ACK'
+        elif self.is_ack:
+            return 'ACK'
+        elif self.is_fin:
+            return 'FIN'
+        elif self.is_fin_ack:
+            return 'FIN/ACK'
+        elif self.is_rst:
+            return 'RST'
+
+        return 'DATA'
+
+    def __str__(self):
+        parts = [
+            self.__class__.__name__,
+            self.type,
+            str(self.source_port),
+            '->',
+            str(self.destination_port),
+        ]
+        return f"<{' '.join(parts)}>"

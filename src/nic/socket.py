@@ -10,6 +10,12 @@ from packets.tcp import TCPPacket
 logger = logging.getLogger(__name__)
 
 
+class TCPOverUDPSocketError(Exception):
+    """
+    Catch all error for anything related to TCPOverUDPSocket.
+    """
+
+
 class TCPOverUDPSocket:
     class STATE(Enum):
         CLOSED = 1
@@ -54,13 +60,17 @@ class TCPOverUDPSocket:
         # Data pulled from inbound packet queue.
         self._data_queue = bytearray()
 
-    def handle_queue(self):
+    def start(self):
+        self._handle_queue()
+
+    def _handle_queue(self):
         while True:
             try:
+                logger.debug(f'Length of in queue {len(self.packet_in_queue)}')
                 packet = self.packet_in_queue.pop(0)
             except IndexError:
                 # TODO: Use select instead of fast loop
-                time.sleep(0.1)
+                time.sleep(1)
                 continue
 
             self._handle_packet(packet)
@@ -69,6 +79,8 @@ class TCPOverUDPSocket:
         """
         Make a decision about what to do based contents of packet.
         """
+        logger.info(f'Starting to handle {p}')
+
         resp_p = self._get_tcp_packet()
 
         if self.state == self.STATE.LISTEN:
@@ -112,6 +124,13 @@ class TCPOverUDPSocket:
             self.state = self.STATE.ESTABLISHED
             return
 
+        elif self.state == self.STATE.ESTABLISHED:
+            resp_p.ack = True
+            self._write_packet(resp_p)
+            return
+
+        raise TCPOverUDPSocketError('Unexpected packet {p} for state {self.state}')
+
     def read(self, size: int) -> bytes:
         data = self._data_queue[:size]
         self._data_queue = self._data_queue[size:]
@@ -124,15 +143,19 @@ class TCPOverUDPSocket:
 
         self._write_packet(p)
 
-    def _write_packet(self, packet: TCPPacket):
+    def _write_packet(self, p: TCPPacket):
         """
         Write TCP packet out to the network.
         """
+        logger.debug(f'Will write {p}')
+
         # Wrap in IP packet.
-        p = self._get_ip_packet(packet)
+        ip_packet = self._get_ip_packet(p)
 
         # Send packet on its way.
-        self.nic.send_packet(p)
+        self.nic.send_packet(ip_packet)
+
+        logger.debug(f'Wrote packet {ip_packet}')
 
     def _get_tcp_packet(self):
         p = TCPPacket()
@@ -178,9 +201,6 @@ class TCPOverUDPSocket:
         self._write_packet(p)
         self.state = self.STATE.SYN_SENT
 
-        logger.debug(f'Sent SYN to {self.destination_address}:{p.destination_port}')
-
         while self.state != self.STATE.ESTABLISHED:
             # TODO: Replace with something better than tight loop.
             time.sleep(0.1)
-
