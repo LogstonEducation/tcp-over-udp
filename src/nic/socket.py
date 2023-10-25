@@ -65,13 +65,52 @@ class TCPOverUDPSocket:
 
             self._handle_packet(packet)
 
-    def _handle_packet(self, packet: TCPPacket):
+    def _handle_packet(self, p: TCPPacket):
         """
         Make a decision about what to do based contents of packet.
         """
-        logger.debug(packet.data)
+        resp_p = self._get_tcp_packet()
 
-        self._data_queue.extend(packet.data)
+        if self.state == self.STATE.LISTEN:
+            if not p.is_syn:
+                # Not valid packet to receive while in LISTEN. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            # Send SYN/ACK
+            resp_p.syn = True
+            resp_p.ack = True
+            self._write_packet(resp_p)
+            self.state = self.STATE.SYN_RCVD
+            return
+
+        elif self.state == self.STATE.SYN_RCVD:
+            if not p.is_ack:
+                # Not valid packet to receive while in SYN_RCVD. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            # We've received an ACK. Connection is ESTABLISHED.
+            self.state = self.STATE.ESTABLISHED
+            return
+
+        elif self.state == self.STATE.SYN_SENT:
+            if not p.is_syn_ack:
+                # Not valid packet to receive while in SYN_SENT. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            # Send ACK
+            resp_p.ack = True
+            self._write_packet(resp_p)
+            self.state = self.STATE.ESTABLISHED
+            return
 
     def read(self, size: int) -> bytes:
         data = self._data_queue[:size]

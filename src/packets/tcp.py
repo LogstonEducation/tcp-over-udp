@@ -496,3 +496,41 @@ class TCPPacket:
             raise TCPPacketError(msg)
 
         return p
+
+    @property
+    def is_syn(self) -> bool:
+        p = self.__class__()
+        p.syn = True
+        return p.flags == self.flags
+
+    @property
+    def is_syn_ack(self) -> bool:
+        p = self.__class__()
+        p.syn = True
+        p.ack = True
+        return p.flags == self.flags
+
+    @property
+    def is_ack(self) -> bool:
+        p = self.__class__()
+        p.ack = True
+        return p.flags == self.flags
+
+    @property
+    def is_fin(self) -> bool:
+        p = self.__class__()
+        p.fin = True
+        return p.flags == self.flags
+
+    @property
+    def is_fin_ack(self) -> bool:
+        p = self.__class__()
+        p.fin = True
+        p.ack = True
+        return p.flags == self.flags
+
+    @property
+    def is_rst(self) -> bool:
+        p = self.__class__()
+        p.rst = True
+        return p.flags == self.flags

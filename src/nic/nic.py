@@ -165,7 +165,13 @@ class NIC:
             if s is None:
                 logger.debug(f'setting up new socket for {tup}')
 
+                # TODO: Check if destination_address is an address we are
+                # listening on.
+
+                # If we were listening on the address, then assume we can
+                # create a socket in a listening state.
                 s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
+                s.state = TCPOverUDPSocket.STATE.LISTEN
 
                 t = threading.Thread(target=s.handle_queue, daemon = True)
                 t.start()
