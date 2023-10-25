@@ -9,11 +9,13 @@ packages = [
     { include = "nic", from = "src" },
     { include = "packets", from = "src" },
     { include = "utils", from = "src" },
+    { include = "layer2", from = "src" },
+    { include = "demo", from = "src" },
 ]
 
 [tool.poetry.scripts]
-server = 'nic.server:main'
-client = 'nic.client:main'
+server = 'demo.server:main'
+client = 'demo.client:main'
 
 [tool.poetry.dependencies]
 python = "^3.11"

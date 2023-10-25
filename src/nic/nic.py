@@ -1,5 +1,4 @@
 import logging
-import socket
 import time
 import threading
 import sys
@@ -12,39 +11,44 @@ from packets.tcp import TCPPacket, TCPPacketError
 logger = logging.getLogger(__name__)
 
 
+class NICError(Exception):
+    """
+    Catch all error for anything related to NIC.
+    """
+
+
 class NIC:
-    def __init__(self, port=2240) -> None:
-        # This mimics an ethernet layer for us (ie. layer 2).
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # We bind to an address so that real UDP packets can be received. We
-        # can think of this as the NIC publishing its MAC address on a network?
-        self._sock.bind(('127.0.0.1', port))
-
-        self._in_queue = bytearray()
-        self._out_queue = []
-
-        self._socket_map = {}
-
+    def __init__(self, layer2) -> None:
+        # A bool to indicate if threads should shutdown.
+        # TODO: Do we need this?
         self._shutdown = False
 
+        self._layer2 = layer2
+        self._in_queue = bytearray()
+        self._out_queue = bytearray()
+
+        # A list of threads used by NIC.
+        # The NIC itself needs a few threads to manage incoming and outgoing
+        # traffic. And each socket uses its own thread.
         self._threads = []
+
+        # A map from 5-tuple to socket servicing the connection represented by
+        # the 5-tuple.
+        self._socket_map = {}
 
     def run(self):
         """
         Run each loop to handle both in and outbound transit.
         """
-        t = threading.Thread(target=self.read_from_layer_2)
-        t.daemon = True
+        t = threading.Thread(target=self._read_from_layer2, daemon=True)
         t.start()
         self._threads.append(t)
 
-        t = threading.Thread(target=self.handle_in_queue)
-        t.daemon = True
+        t = threading.Thread(target=self._write_to_layer2, daemon=True)
         t.start()
         self._threads.append(t)
 
-        t = threading.Thread(target=self._send_out_queue)
-        t.daemon = True
+        t = threading.Thread(target=self._handle_in_queue, daemon=True)
         t.start()
         self._threads.append(t)
 
@@ -54,21 +58,43 @@ class NIC:
             except KeyboardInterrupt:
                 sys.exit(0)
 
-    def read_from_layer_2(self):
-        logger.debug('starting layer 2 read')
+    def _read_from_layer2(self):
+        logger.info('starting read from layer 2 loop')
+
         while True:
             if self._shutdown:
                 break
 
             try:
-                b = self._sock.recv(60)
+                b = self._layer2.read(60)
             except KeyboardInterrupt:
                 self._shutdown = True
                 break
 
             self._in_queue.extend(b)
 
-    def handle_in_queue(self):
+    def _write_to_layer2(self):
+        logger.info('starting write to layer 2 loop')
+
+        while True:
+            if self._shutdown:
+                break
+
+            try:
+                # Send a few bytes at a time to get a feel for
+                # very discrete flows.
+                b = self._out_queue[:5]
+                self._out_queue = self._out_queue[5:]
+            except IndexError:
+                time.sleep(0.1)
+                continue
+            except KeyboardInterrupt:
+                self._shutdown = True
+                break
+
+            self._layer2.write(b)
+
+    def _handle_in_queue(self):
         logger.debug('starting in queue')
 
         while True:
@@ -141,63 +167,42 @@ class NIC:
 
                 s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
 
-                t = threading.Thread(target=s.handle_queue)
-                t.daemon = True
+                t = threading.Thread(target=s.handle_queue, daemon = True)
                 t.start()
                 self._threads.append(t)
 
-            s.queue.append(tcp_packet)
+            s.packet_in_queue.append(tcp_packet)
 
-    def send_packet(
-        self,
-        source_address: str,
-        destination_address: str,
-        packet,
-    ):
-        p = self._get_ip_packet(source_address, destination_address, packet)
-        self._out_queue.append((p.bytes, (destination_address, packet.destination_port)))
+    def send_packet(self, packet: IPPacket):
+        self._out_queue.extend(packet.bytes)
 
-    def _send_out_queue(self):
-        logger.debug('starting out queue')
+    def create_conn(self, addr_tup: tuple, timeout=1.0) -> TCPOverUDPSocket:
+        logger.debug(f'Creating conn to {addr_tup}')
 
-        while True:
-            if self._shutdown:
-                break
+        # TODO: Pull source_address from NIC.
+        source_address = '98.76.54.231'
+        # TODO: Randomize this port based on "available" ports.
+        source_port = 2245
 
-            try:
-                p = self._out_queue.pop(0)
-            except IndexError:
-                time.sleep(0.1)
-                continue
-            except KeyboardInterrupt:
-                self._shutdown = True
-                break
+        tup = (
+            source_address,
+            source_port,
+            addr_tup[0],
+            addr_tup[1],
+            IPPacket.PROTOCOL.TCP,
+        )
 
-            self._sock.sendto(*p)
+        if tup in self._socket_map:
+            raise NICError(f'Socket {tup} already exists')
 
-    def _get_ip_packet(
-        self,
-        source_address,
-        destination_address,
-        packet,
-    ) -> IPPacket:
-        ip_packet = IPPacket()
-        ip_packet.version = 4
-        ip_packet.ihl = 5
-        ip_packet.dscp = 0
-        ip_packet.ecn = 0
-        ip_packet.identification = 0
-        ip_packet.flags = 2  # Do not fragment. TODO: Support fragmentation.
-        ip_packet.fragment_offset = 0
-        ip_packet.ttl = 64
-        ip_packet.protocol = 6
-        ip_packet.source_address = source_address
-        ip_packet.destination_address = destination_address
+        s = self._socket_map[tup] = TCPOverUDPSocket(self, *tup)
 
-        packet.ip_packet = ip_packet
-        # Encapsulate into IP packet.
-        ip_packet.data = packet.bytes
-        # Overwrite default total_length
-        ip_packet.total_length = len(ip_packet.bytes)
+        # Open a connection.
+        t = threading.Thread(target=s.open_connection, daemon=True)
+        t.start()
+        self._threads.append(t)
 
-        return ip_packet
+        # Wait until socket is ready.
+        t.join(timeout)
+
+        return s
