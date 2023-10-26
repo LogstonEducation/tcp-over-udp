@@ -1,3 +1,5 @@
+import threading
+
 from layer2.buffer import Buffer
 from nic.nic import NIC
 from nic.socket import TCPOverUDPSocket
@@ -48,6 +50,7 @@ def setup_socket():
     return n, s
 
 
+# FROM LISTEN
 def test_socket_listen_to_syn_rcvd():
     # Set up server socket.
     n, s = setup_socket()
@@ -67,6 +70,7 @@ def test_socket_listen_to_syn_rcvd():
     assert s.state == TCPOverUDPSocket.STATE.SYN_RCVD
 
 
+### FROM SYN_RCVD
 def test_socket_syn_rcvd_to_established():
     # Set up server socket.
     n, s = setup_socket()
@@ -82,6 +86,22 @@ def test_socket_syn_rcvd_to_established():
     assert len(n._out_queue) == 0
 
     assert s.state == TCPOverUDPSocket.STATE.ESTABLISHED
+
+
+def test_socket_syn_rcvd_to_fin_wait_1():
+    # Set up server socket.
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.SYN_RCVD
+
+    t = threading.Thread(target=s.close_connection, daemon=True)
+    t.start()
+    t.join(0.01)
+
+    # Server sent a FIN
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_fin
+
+    assert s.state == TCPOverUDPSocket.STATE.FIN_WAIT_1
 
 
 def test_socket_syn_rcvd_to_closed():
@@ -102,6 +122,7 @@ def test_socket_syn_rcvd_to_closed():
     assert s.state == TCPOverUDPSocket.STATE.CLOSED
 
 
+# FROM SYN_SENT
 def test_socket_syn_sent_to_established():
     # Set up client socket.
     n, s = setup_socket()
@@ -119,3 +140,142 @@ def test_socket_syn_sent_to_established():
     assert p.is_ack
 
     assert s.state == TCPOverUDPSocket.STATE.ESTABLISHED
+
+
+# FROM ESTABLISHED
+def test_socket_established_to_fin_wait():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.ESTABLISHED
+
+    t = threading.Thread(target=s.close_connection, daemon=True)
+    t.start()
+    t.join(0.01)
+
+    # Server sent a FIN
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_fin
+
+    assert s.state == TCPOverUDPSocket.STATE.FIN_WAIT_1
+
+
+def test_socket_established_to_close_wait():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.ESTABLISHED
+
+    p = create_simple_tcp_packet()
+    p.fin = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_ack
+
+    assert s.state == TCPOverUDPSocket.STATE.CLOSE_WAIT
+
+
+# FROM FIN_WAIT_1
+def test_socket_fin_wait_1_to_fin_wait_2():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.FIN_WAIT_1
+
+    p = create_simple_tcp_packet()
+    p.ack = True
+
+    s._handle_packet(p)
+
+    assert len(n._out_queue) == 0
+
+    assert s.state == TCPOverUDPSocket.STATE.FIN_WAIT_2
+
+
+def test_socket_fin_wait_1_to_time_wait():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.FIN_WAIT_1
+
+    p = create_simple_tcp_packet()
+    p.fin = True
+    p.ack = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_ack
+
+    assert s.state == TCPOverUDPSocket.STATE.TIME_WAIT
+
+
+def test_socket_fin_wait_1_to_closing():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.FIN_WAIT_1
+
+    p = create_simple_tcp_packet()
+    p.fin = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_ack
+
+    assert s.state == TCPOverUDPSocket.STATE.CLOSING
+
+
+# FROM FIN_WAIT_2
+def test_socket_fin_wait_2_to_time_wait():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.FIN_WAIT_2
+
+    p = create_simple_tcp_packet()
+    p.fin = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_ack
+
+    assert s.state == TCPOverUDPSocket.STATE.TIME_WAIT
+
+
+# FROM CLOSING
+def test_socket_closing_to_time_wait():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.CLOSING
+
+    p = create_simple_tcp_packet()
+    p.ack = True
+
+    s._handle_packet(p)
+
+    assert len(n._out_queue) == 0
+
+    assert s.state == TCPOverUDPSocket.STATE.TIME_WAIT
+
+
+# FROM CLOSE_WAIT
+def test_socket_close_wait_to_last_ack():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.CLOSE_WAIT
+
+    t = threading.Thread(target=s.close_connection, daemon=True)
+    t.start()
+    t.join(0.01)
+
+    # Sent a FIN
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.is_fin
+
+    assert s.state == TCPOverUDPSocket.STATE.LAST_ACK
+
+
+# FROM LAST_ACK
+def test_socket_last_ack_to_closed():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.LAST_ACK
+
+    p = create_simple_tcp_packet()
+    p.ack = True
+
+    s._handle_packet(p)
+
+    assert len(n._out_queue) == 0
+
+    assert s.state == TCPOverUDPSocket.STATE.CLOSED

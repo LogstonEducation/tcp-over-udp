@@ -1,3 +1,9 @@
+"""
+References:
+- Project 4: A TCP State Transition Program
+  http://www.cs.uni.edu/~diesburg/courses/cs3470_fa19/projects/p4-tcp.html
+  Accessed: 2023-10-25
+"""
 from enum import Enum
 import logging
 import time
@@ -83,6 +89,9 @@ class TCPOverUDPSocket:
 
         resp_p = self._get_tcp_packet()
 
+        if p.is_ack:
+            self._data_queue.extend(p.data)
+
         if self.state == self.STATE.LISTEN:
             if not p.is_syn:
                 # Not valid packet to receive while in LISTEN. Send RST.
@@ -99,11 +108,18 @@ class TCPOverUDPSocket:
             return
 
         elif self.state == self.STATE.SYN_RCVD:
-            if not p.is_ack:
+            if not (p.is_ack or p.is_syn_ack):
                 # Not valid packet to receive while in SYN_RCVD. Send RST.
                 resp_p.rst = True
                 self._write_packet(resp_p)
                 self.state = self.STATE.CLOSED
+                return
+
+            # Ignore case where we receive a SYN/ACK. That means there was a
+            # concurrent attempt to start a connection.
+            # We can rely on the next ACK from normal data flow to set the state.
+            if p.is_syn_ack:
+                # TODO: Test this.
                 return
 
             # We've received an ACK. Connection is ESTABLISHED.
@@ -111,22 +127,111 @@ class TCPOverUDPSocket:
             return
 
         elif self.state == self.STATE.SYN_SENT:
-            if not p.is_syn_ack:
+            if not (p.is_syn_ack or p.is_syn):
                 # Not valid packet to receive while in SYN_SENT. Send RST.
                 resp_p.rst = True
                 self._write_packet(resp_p)
                 self.state = self.STATE.CLOSED
                 return
 
-            # Send ACK
+            if p.is_syn:
+                # TODO: Test this.
+                # Could be that other socket sent a SYN packet just as we did
+                # and their's reached this socket before their SYN/ACK could
+                # reach this socket.
+                resp_p.syn = True
+                resp_p.ack = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.SYN_RCVD
+                return
+
+            # Received SYN/ACK. Send ACK
             resp_p.ack = True
             self._write_packet(resp_p)
             self.state = self.STATE.ESTABLISHED
             return
 
         elif self.state == self.STATE.ESTABLISHED:
+            if not (p.is_ack or p.fin):
+                # Not valid packet to receive while in ESTABLISHED. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            if p.is_fin:
+                resp_p.ack = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSE_WAIT
+                return
+
             resp_p.ack = True
             self._write_packet(resp_p)
+            return
+
+        elif self.state == self.STATE.FIN_WAIT_1:
+            if not (p.is_ack or p.fin or p.is_fin_ack):
+                # Not valid packet to receive while in FIN_WAIT_1. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            if p.is_fin:
+                resp_p.ack = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSING
+                return
+
+            if p.is_fin_ack:
+                resp_p.ack = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.TIME_WAIT
+                return
+
+            self.state = self.STATE.FIN_WAIT_2
+            return
+
+        elif self.state == self.STATE.FIN_WAIT_2:
+            if not p.fin:
+                # Not valid packet to receive while in FIN_WAIT_2. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            resp_p.ack = True
+            self._write_packet(resp_p)
+            self.state = self.STATE.TIME_WAIT
+            return
+
+        elif self.state == self.STATE.CLOSING:
+            if not p.ack:
+                # Not valid packet to receive while in CLOSING. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            self.state = self.STATE.TIME_WAIT
+            return
+
+        elif self.state == self.STATE.CLOSE_WAIT:
+            # We do not expect any incoming packets while in CLOSE_WAIT. Send RST.
+            resp_p.rst = True
+            self._write_packet(resp_p)
+            self.state = self.STATE.CLOSED
+            return
+
+        elif self.state == self.STATE.LAST_ACK:
+            if not p.ack:
+                # Not valid packet to receive while in LAST_ACK. Send RST.
+                resp_p.rst = True
+                self._write_packet(resp_p)
+                self.state = self.STATE.CLOSED
+                return
+
+            self.state = self.STATE.CLOSED
             return
 
         raise TCPOverUDPSocketError('Unexpected packet {p} for state {self.state}')
@@ -202,5 +307,39 @@ class TCPOverUDPSocket:
         self.state = self.STATE.SYN_SENT
 
         while self.state != self.STATE.ESTABLISHED:
+            # TODO: Replace with something better than tight loop.
+            time.sleep(0.1)
+
+    def close_connection(self):
+        if self.state not in (
+            self.STATE.SYN_RCVD,
+            self.STATE.SYN_SENT,
+            self.STATE.ESTABLISHED,
+            self.STATE.CLOSE_WAIT,
+        ):
+            raise TCPOverUDPSocketError('Unexpected state {self.state} for closing')
+
+        if self.state == self.STATE.SYN_SENT:
+            self.state = self.STATE.CLOSED
+            return
+
+        if self.state == self.STATE.CLOSE_WAIT:
+            p = self._get_tcp_packet()
+            p.fin = True
+            self._write_packet(p)
+            self.state = self.STATE.LAST_ACK
+
+            while self.state != self.STATE.CLOSED:
+                # TODO: Replace with something better than tight loop.
+                time.sleep(0.1)
+
+            return
+
+        p = self._get_tcp_packet()
+        p.fin = True
+        self._write_packet(p)
+        self.state = self.STATE.FIN_WAIT_1
+
+        while self.state != self.STATE.TIME_WAIT:
             # TODO: Replace with something better than tight loop.
             time.sleep(0.1)

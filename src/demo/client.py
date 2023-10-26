@@ -34,9 +34,11 @@ def main():
     # IP can be bogus since we are servicing all IPs on the server side.
     s = n.create_conn(('123.45.67.89', 80))
 
-    for x in range(10):
+    for x in range(5):
         s.write(f'sup {x}'.encode())
         time.sleep(1)
+
+    s.close_connection()
 
     try:
         t.join()
