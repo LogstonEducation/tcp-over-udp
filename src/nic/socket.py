@@ -87,6 +87,8 @@ class TCPOverUDPSocket:
         """
         logger.info(f'Starting to handle {p}')
 
+        self.acknowledgment_number += len(p.bytes)
+
         resp_p = self._get_tcp_packet()
 
         if p.is_ack:
@@ -254,11 +256,15 @@ class TCPOverUDPSocket:
         """
         logger.debug(f'Will write {p}')
 
+        p.sequence_number = self.sequence_number
+
         # Wrap in IP packet.
         ip_packet = self._get_ip_packet(p)
 
         # Send packet on its way.
         self.nic.send_packet(ip_packet)
+
+        self.sequence_number += len(ip_packet.data)
 
         logger.debug(f'Wrote packet {ip_packet}')
 

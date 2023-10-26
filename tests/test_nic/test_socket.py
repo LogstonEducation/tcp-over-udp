@@ -279,3 +279,53 @@ def test_socket_last_ack_to_closed():
     assert len(n._out_queue) == 0
 
     assert s.state == TCPOverUDPSocket.STATE.CLOSED
+
+
+def test_acknowledgment_number():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.ESTABLISHED
+
+    s.acknowledgment_number = 0
+
+    p = create_simple_tcp_packet(b'12345')
+    p.ack = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.ack
+    assert p.acknowledgment_number == 25
+
+    assert s.acknowledgment_number == 25
+
+
+def test_sequence_number():
+    n, s = setup_socket()
+    s.state = TCPOverUDPSocket.STATE.ESTABLISHED
+
+    s.sequence_number = 0
+
+    # Send one packet.
+    p = create_simple_tcp_packet()
+    p.ack = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.ack
+    assert p.sequence_number == 0
+    assert s.sequence_number == 20
+
+    # Assume first packet was written out wire.
+    n._out_queue = n._out_queue[len(p.ip_packet.bytes):]
+
+    # Send another packet.
+    p = create_simple_tcp_packet()
+    p.ack = True
+
+    s._handle_packet(p)
+
+    p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
+    assert p.ack
+    assert p.sequence_number == 20
+    assert s.sequence_number == 40
