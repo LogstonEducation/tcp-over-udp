@@ -236,7 +236,7 @@ class TCPOverUDPSocket:
             self.state = self.STATE.CLOSED
             return
 
-        raise TCPOverUDPSocketError('Unexpected packet {p} for state {self.state}')
+        raise TCPOverUDPSocketError(f'Unexpected packet {p} for state {self.state}')
 
     def read(self, size: int) -> bytes:
         data = self._data_queue[:size]
@@ -246,6 +246,7 @@ class TCPOverUDPSocket:
     def write(self, msg: bytes):
         # Build TCP packet.
         p = self._get_tcp_packet()
+        p.ack = True
         p.data = msg
 
         self._write_packet(p)
@@ -323,7 +324,7 @@ class TCPOverUDPSocket:
             self.STATE.ESTABLISHED,
             self.STATE.CLOSE_WAIT,
         ):
-            raise TCPOverUDPSocketError('Unexpected state {self.state} for closing')
+            raise TCPOverUDPSocketError(f'Unexpected state {self.state} for closing')
 
         if self.state == self.STATE.SYN_SENT:
             self.state = self.STATE.CLOSED

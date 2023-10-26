@@ -550,7 +550,7 @@ class TCPPacket:
         elif self.is_rst:
             return 'RST'
 
-        return 'DATA'
+        raise TCPPacketError(f'Invalid packet flags {self.flags}')
 
     def __str__(self):
         parts = [

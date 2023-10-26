@@ -109,8 +109,8 @@ def test_socket_syn_rcvd_to_closed():
     n, s = setup_socket()
     s.state = TCPOverUDPSocket.STATE.SYN_RCVD
 
-    # Create SYN packet from client.
     p = create_simple_tcp_packet()
+    p.fin = True
 
     s._handle_packet(p)
 
