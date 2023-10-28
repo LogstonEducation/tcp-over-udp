@@ -285,8 +285,6 @@ def test_acknowledgment_number():
     n, s = setup_socket()
     s.state = TCPOverUDPSocket.STATE.ESTABLISHED
 
-    s.acknowledgment_number = 0
-
     p = create_simple_tcp_packet(b'12345')
     p.ack = True
 
@@ -303,13 +301,11 @@ def test_sequence_number():
     n, s = setup_socket()
     s.state = TCPOverUDPSocket.STATE.ESTABLISHED
 
-    s.sequence_number = 0
-
     # Send one packet.
     p = create_simple_tcp_packet()
     p.ack = True
 
-    s._handle_packet(p)
+    s._write_packet(p)
 
     p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
     assert p.ack
@@ -323,7 +319,7 @@ def test_sequence_number():
     p = create_simple_tcp_packet()
     p.ack = True
 
-    s._handle_packet(p)
+    s._write_packet(p)
 
     p = TCPPacket.parse_from_ip_packet(IPPacket.parse(n._out_queue))
     assert p.ack
