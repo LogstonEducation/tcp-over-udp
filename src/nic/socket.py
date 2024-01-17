@@ -58,10 +58,11 @@ class TCPOverUDPSocket:
         # TCP control fields.
         self.state = self.STATE.CLOSED
         self.sequence_number = 0
-        self.acknowledgment_number = 0
+        self.acknowledgment_number = None
 
-        # Inbound packet queue.
+        # Packet queues.
         self.packet_in_queue: List[TCPPacket] = []
+        self._packet_out_queue: List[tuple] = []
 
         # Data pulled from inbound packet queue.
         self._data_queue = bytearray()
@@ -87,7 +88,41 @@ class TCPOverUDPSocket:
         """
         logger.info(f'Starting to handle {p}')
 
-        self.acknowledgment_number += len(p.bytes)
+        # Packet should acknowledge what we have already sent.
+        # TODO: Only handle if acknowledgment number is far behind. Many MTU?
+        if p.acknowledgment_number < self.sequence_number:
+            # TODO: Only send those that are missing.
+            self._write_old_packets()
+        elif p.acknowledgment_number == self.sequence_number:
+            if self._packet_out_queue:
+                # Remove from queue while data sent is less than p.acknowledgment_number.
+                old_sequence_number, ip_packet = self._packet_out_queue[0]
+                while p.acknowledgment_number >= old_sequence_number and self._packet_out_queue:
+                    old_sequence_number, ip_packet = self._packet_out_queue.pop(0)
+
+                # Put last packet back if it was popped to soon.
+                if p.acknowledgment_number < old_sequence_number:
+                    self._packet_out_queue.insert(0, (old_sequence_number, ip_packet))
+
+        else:
+            raise TCPOverUDPSocketError(f'Unexpected ack number {p.acknowledgment_number}')
+
+        # Bootstrap acknowledgment number if this is the first packet handled by the socket.
+        if self.acknowledgment_number is None:
+            self.acknowledgment_number = p.sequence_number - 1
+
+        # Before we can start ACKing more bytes, need to make sure that we are
+        # starting from where we left off.
+        if p.sequence_number != self.acknowledgment_number + 1:
+            # Send an ack of our last byte.
+            resp_p = self._get_tcp_packet()
+            resp_p.ack = True
+            self._write_packet(resp_p)
+            return
+
+        self.acknowledgment_number = p.sequence_number + len(p.bytes)
+
+        # TODO: Write tests for packets being resent.
 
         resp_p = self._get_tcp_packet()
 
@@ -251,6 +286,12 @@ class TCPOverUDPSocket:
 
         self._write_packet(p)
 
+    def _write_old_packets(self):
+        # Send any packets that we should have seen an ACK for by now.
+        for _old_sequence_number, old_packet in self._packet_out_queue:
+            # TODO: Only resend if packets are "old enough".
+            self.nic.send_packet(old_packet)
+
     def _write_packet(self, p: TCPPacket):
         """
         Write TCP packet out to the network.
@@ -267,6 +308,9 @@ class TCPOverUDPSocket:
 
         self.sequence_number += len(ip_packet.data)
 
+        # Store TCP packet in case we need to send again.
+        self._packet_out_queue.append((self.sequence_number, ip_packet))
+
         logger.debug(f'Wrote packet {ip_packet}')
 
     def _get_tcp_packet(self):
@@ -276,7 +320,7 @@ class TCPOverUDPSocket:
         p.destination_port = self.destination_port
 
         p.sequence_number = self.sequence_number
-        p.acknowledgment_number = self.acknowledgment_number
+        p.acknowledgment_number = self.acknowledgment_number or 0
 
         p.window_size = 2048
 
